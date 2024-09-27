@@ -1,12 +1,6 @@
-﻿using CarScrapper.Models;
-using CarScrapper.Services.Interfaces;
+﻿using CarScrapper.Services.Interfaces;
 using CarScrapper.Utils;
-using HtmlAgilityPack;
 using Microsoft.AspNetCore.Mvc;
-using Newtonsoft.Json;
-using System.Text.Json;
-using System.Text.RegularExpressions;
-using static CarScrapper.Services.ScrapperService;
 
 namespace CarScrapper.Controllers
 {
@@ -21,57 +15,24 @@ namespace CarScrapper.Controllers
 
         [HttpGet, ApiProtected]
         public IActionResult GetScrapped()
-        {
-            try
-            {
-                return Ok(_scrapperService.GetCarsScrapped());
-            }
-            catch (Exception ex)
-            {
-                return BadRequest();
-            }
-        }
+            => Ok(_scrapperService.GetCarsScrapped());
 
         [HttpPut("{id?}"), ApiProtected]
         public IActionResult UpdateScrapped([FromRoute] int? id)
         {
-            try
-            {
-                var result = false;
-                if (id == null) 
-                    result = _scrapperService.Scrap();
-                
-                var car = (CarMake)id;
-                result = _scrapperService.Scrap(car);
-
-                if (result)
-                    return Ok(_scrapperService.GetCarsScrapped());
-                return BadRequest();
-            }
-            catch (Exception ex)
-            {
-                return BadRequest();
-            }
+            if (_scrapperService.Scrap(id))
+                return Ok(_scrapperService.GetCarsScrapped());
+            return BadRequest();
         }
 
         [HttpPut("sync"), ApiProtected]
         public IActionResult SyncData()
-        {
-            try
-            {
-                var result = _scrapperService.SyncScrapped();
-                return Ok(result);
-            }
-            catch (Exception ex)
-            {
-                return BadRequest();
-            }
-        }
+            => Ok(_scrapperService.SyncScrapped());
 
         [HttpPost("scrap"), ApiProtected]
         public IActionResult ScrapPages()
         {
-            if(_scrapperService.Scrap())
+            if(_scrapperService.Scrap(null))
                 return Ok();
             return BadRequest();
         }

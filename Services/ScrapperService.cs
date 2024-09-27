@@ -1,9 +1,6 @@
-﻿using AutoMapper;
-using CarScrapper.Entities;
-using CarScrapper.Models;
+﻿using CarScrapper.Models;
 using CarScrapper.Scrappers;
 using CarScrapper.Services.Interfaces;
-using Newtonsoft.Json;
 
 namespace CarScrapper.Services
 {
@@ -55,12 +52,13 @@ namespace CarScrapper.Services
             {CarMake.Volkswagen,  new VolkswagenScrapper("https://www.volkswagen.pl/pl/modele.html") },
         };
 
-        private readonly Entities.ScrapperDbContext _db;
-        private readonly IMapper _mapper;
-        public ScrapperService(Entities.ScrapperDbContext db, IMapper mapper)
+        private readonly IDatabaseService _db;
+        private readonly ILogger _log;
+
+        public ScrapperService(IDatabaseService db, ILogger<ScrapperService> log)
         {
             _db = db;
-            _mapper = mapper;
+            _log = log;
         }
 
         public bool Scrap()
@@ -75,39 +73,77 @@ namespace CarScrapper.Services
             return UpdateScrapped(result);
         }
 
-        public bool Scrap(CarMake carMake)
+        public bool Scrap(int? id)
         {
-            var scrapper = Scrappers[carMake];
-            return UpdateScrapped(scrapper.GetParsedContent());
+            if (id == null)
+                return ScrapAll();
+
+            var carMake = (CarMake)id;
+            return ScrapSingle(carMake);
         }
 
         public List<CarScrappedDTO> GetCarsScrapped()
+            => _db.GetCarsScrapped() ?? new List<CarScrappedDTO>();
+
+        public List<CarScrappedDTO> SyncScrapped()
         {
             try
             {
-                var result = _mapper.Map<List<CarScrappedDTO>>(_db.Cars);
-                return result;
+                var brands = _db.GetBrands();
+                var scrapers = Enum.GetNames(typeof(CarMake)).Where(x => x != "All");
+                var result = scrapers.Except(brands).ToList();
+
+                foreach (var item in result)
+                {
+                    var carMake = (CarMake)Enum.Parse(typeof(CarMake), item);
+                    var scrapper = Scrappers[carMake];
+                    if (!UpdateScrapped(scrapper.GetParsedContent()))
+                    {
+                        _log.LogError($"Error during sync {item}");
+                        continue;
+                    }
+                }
+
+                return _db.GetCarsScrapped() ?? new List<CarScrappedDTO>();
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex.ToString());
+                return new List<CarScrappedDTO>();
+            }
+        }
+        private bool ScrapAll()
+        {
+            try
+            {
+                var result = new List<CarScrappedDTO>();
+                foreach (var scrapper in Scrappers.Values)
+                {
+                    var scrapped = scrapper.GetParsedContent();
+                    result.AddRange(scrapped);
+                }
+
+                return UpdateScrapped(result);
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex.ToString());
+                return false;
+            }
+        }
+        private bool ScrapSingle(CarMake carMake)
+        {
+            try
+            {
+                return UpdateScrapped(Scrappers[carMake].GetParsedContent());
             }
             catch(Exception ex)
             {
-                return null;
+                _log.LogError(ex.ToString());
+                return false;
             }
         }
-        public List<CarScrappedDTO> SyncScrapped()
-        {
-            var exists = _db.Cars.Select(x => x.Make).Distinct();
-            var scrapers = Enum.GetNames(typeof(CarMake)).Where(x => x != "All");
-            var result = scrapers.Except(exists).ToList();
 
-            foreach(var item in result)
-            {
-                var carMake = (CarMake)Enum.Parse(typeof(CarMake), item);
-                var scrapper = Scrappers[carMake];
-                UpdateScrapped(scrapper.GetParsedContent());
-            }
-
-            return _mapper.Map<List<CarScrappedDTO>>(_db.Cars);
-        }
         private bool UpdateScrapped(List<CarScrappedDTO> dto)
         {
             try
@@ -115,17 +151,13 @@ namespace CarScrapper.Services
                 var makes = dto.GroupBy(x => x.Make).Select(x => x.Key).ToList();
                 foreach(var make in makes)
                 {
-                    var cars = _db.Cars.Where(x => x.Make == make);
-                    if (cars.Any())
-                        _db.RemoveRange(cars);
-                    var mapped = _mapper.Map<List<CarScrapped>>(dto);
-                    _db.Cars.AddRange(mapped);
-                    _db.SaveChanges();
+                    _db.UpdateScrapped(dto, make);
                 }
                 return true;
             }
             catch(Exception ex)
             {
+                _log.LogError("ScrapperService.UpdateScrapped => " + ex.ToString());
                 return false;
             }
         }

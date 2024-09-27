@@ -5,8 +5,7 @@ namespace CarScrapper.Services.Interfaces
 {
     public interface IScrapperService
     {
-        bool Scrap();
-        bool Scrap(CarMake carMake);
+        bool Scrap(int? id);
 
         List<CarScrappedDTO> SyncScrapped();
 
